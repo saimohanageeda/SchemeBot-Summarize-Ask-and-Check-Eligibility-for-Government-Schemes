@@ -107,62 +107,105 @@ def keyword_search_in_summary(sections: dict, query: str) -> str:
 # Main QA function
 # ----------------------------
 def ask_question(scheme_name: str, query: str) -> str:
-    scheme_key = scheme_name.lower().replace(" ", "_")
 
-    # 1️⃣ Check eligibility.json first
-    if scheme_name in eligibility_data:
-        scheme_info = eligibility_data[scheme_name]
+    query_lower = query.lower().strip()
 
-        if any(k in query.lower() for k in ["income", "limit", "eligibility"]):
-            income_info = scheme_info.get("income_limit", {})
-            return "💡 Income Limits:\n" + "\n".join([f"{k}: ₹{v:,}" for k, v in income_info.items()])
+    # 🔹 Case-insensitive scheme lookup
+    scheme_info = None
+    for key in eligibility_data:
+        if key.lower() == scheme_name.lower():
+            scheme_info = eligibility_data[key]
+            break
 
-        if any(k in query.lower() for k in ["subsidy", "financial assistance", "benefit"]):
-            subsidy_info = scheme_info.get("subsidy_amount", {})
-            return "💡 Subsidy Amounts:\n" + "\n".join([f"{k}: ₹{v:,}" for k, v in subsidy_info.items()])
+    # =====================================================
+    # 1️⃣ Check eligibility.json first (Structured answers)
+    # =====================================================
+    if scheme_info:
 
+        # -------- INCOME LIMIT --------
+        if "income" in query_lower:
+
+            income_info = scheme_info.get("income_limit")
+
+            if income_info is None:
+                return "💡 There is no income limit. It is not income based."
+
+            if isinstance(income_info, dict) and income_info:
+                return "💡 Income Limits:\n" + "\n".join(
+                    [f"{k}: ₹{v:,}" for k, v in income_info.items()]
+                )
+
+        # -------- AGE LIMIT --------
+        if "age" in query_lower:
+
+            age_limit = scheme_info.get("age_limit")
+
+            if age_limit is None:
+                return "💡 There is no age limit. It is not age based."
+
+            return f"💡 Minimum Age Required: {age_limit} years"
+
+        # -------- BENEFITS --------
+        if any(k in query_lower for k in ["subsidy", "financial assistance", "benefit"]):
+
+            subsidy_info = scheme_info.get("subsidy_amount")
+
+            if isinstance(subsidy_info, dict) and subsidy_info:
+                return "💡 Benefits:\n" + "\n".join(
+                    [f"{k}: ₹{v:,}" for k, v in subsidy_info.items()]
+                )
+
+    # =====================================================
     # 2️⃣ Try cached summary
+    # =====================================================
     sections = load_summary_sections(scheme_name)
     context = match_section_heading(sections, query)
+
     if context:
         context = filter_section_by_keywords(context, query)
-        print(f"📂 Using cached summary for '{scheme_name}'")
         try:
             result = qa_pipeline(question=query, context=context)
-            answer = clean_text(result["answer"]).strip()
+            answer = clean_text(result["answer"])
             if answer:
                 return f"💡 Answer (from summary): {answer}"
         except Exception as e:
             print(f"⚠️ QA failed on summary: {e}")
 
+    # =====================================================
     # 3️⃣ Keyword search in summary
+    # =====================================================
     context = keyword_search_in_summary(sections, query)
+
     if context:
-        print(f"📂 Using keyword-matched sentences from summary for '{scheme_name}'")
         try:
             result = qa_pipeline(question=query, context=context)
-            answer = clean_text(result["answer"]).strip()
+            answer = clean_text(result["answer"])
             if answer:
                 return f"💡 Answer (from summary): {answer}"
         except Exception as e:
             print(f"⚠️ QA failed on summary sentences: {e}")
 
-    # 4️⃣ Fallback to FAISS
-    print("🔎 Falling back to FAISS search...")
+    # =====================================================
+    # 4️⃣ FAISS fallback
+    # =====================================================
     docs = retriever.invoke(query)
+    scheme_key = scheme_name.lower().replace(" ", "_")
+
     scheme_docs = [
         d for d in docs
         if scheme_key in d.metadata.get("source", "").lower()
         or scheme_name.lower() in d.page_content.lower()
     ]
+
     if not scheme_docs:
         return f"❌ No relevant information found for {scheme_name}."
 
     context = " ".join([d.page_content for d in scheme_docs])
     context = clean_text(context)
+
     try:
         result = qa_pipeline(question=query, context=context)
-        answer = clean_text(result["answer"]).strip()
+        answer = clean_text(result["answer"])
     except Exception as e:
         return f"⚠️ QA failed on FAISS: {e}"
 
@@ -171,6 +214,7 @@ def ask_question(scheme_name: str, query: str) -> str:
         return f"ℹ️ Couldn’t find a precise answer. Here's some relevant info:\n{snippet}"
 
     return f"💡 Answer (from FAISS): {answer}"
+
 
 # ----------------------------
 # CLI Entry
