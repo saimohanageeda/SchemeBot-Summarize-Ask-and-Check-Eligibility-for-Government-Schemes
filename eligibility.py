@@ -25,19 +25,23 @@ def check_eligibility(scheme_name, user_data):
     errors = []
 
     # ✅ Age validation
-    if user_data["age"] < scheme_rules["age_limit"]:
-        errors.append(f"Minimum age required is {scheme_rules['age_limit']}")
+    if scheme_rules.get("age_limit") is not None:
+        if user_data["age"] < scheme_rules["age_limit"]:
+            errors.append(f"Minimum age required is {scheme_rules['age_limit']}")
 
     # ✅ Income validation (check eligible category)
     eligible_category = None
-    for category, limit in income_limits.items():
-        if user_data["income"] <= limit:
-            eligible_category = category
-            break
+    if income_limits:
+        for category, limit in income_limits.items():
+            if user_data["income"] <= limit:
+                eligible_category = category
+                break
 
-    if not eligible_category:
-        highest = max(income_limits.values())
-        errors.append(f"Income exceeds maximum eligible limit of ₹{highest:,}")
+        if not eligible_category:
+            highest = max(income_limits.values())
+            errors.append(f"Income exceeds maximum eligible limit of ₹{highest:,}")
+    else:
+        eligible_category="Not Income Based"
 
     # ✅ State validation
     if "states" in scheme_rules and user_data.get("state"):
@@ -48,11 +52,27 @@ def check_eligibility(scheme_name, user_data):
     if errors:
         return "❌ Not eligible:\n- " + "\n- ".join(errors)
     else:
-        subsidy = subsidy_amounts.get(eligible_category, 0)
+        if subsidy_amounts:
+
+            # Case 1: Category-based subsidy
+            if eligible_category in subsidy_amounts:
+                subsidy = subsidy_amounts[eligible_category]
+                subsidy_text = f"💰 Approximate Subsidy: ₹{subsidy:,}"
+
+            # Case 2: Non-category-based subsidy (like loan range)
+            else:
+                formatted = "\n".join(
+                    [f"- {k}: ₹{v:,}" for k, v in subsidy_amounts.items()]
+                )
+                subsidy_text = f"💰 Financial Details:\n{formatted}"
+
+        else:
+            subsidy_text = "💰 Not a direct subsidy scheme"
+
         return (
             f"✅ Eligible for {matched_scheme} ✅\n"
             f"🏷️ Category: {eligible_category}\n"
-            f"💰 Approximate Subsidy: ₹{subsidy:,}"
+            f"{subsidy_text}"
         )
 
 if __name__ == "__main__":
